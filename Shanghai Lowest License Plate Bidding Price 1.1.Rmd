@@ -1,0 +1,279 @@
+---
+title: "Shanghai License Plate Bidding Price Prediction"
+author: "Suwan Long"
+date: "29/3/2018"
+output:
+   html_document
+---
+<style type="text/css">
+body{ /* Normal  */
+      font-size: 12px;
+      font-family: Times New Roman;
+      color: Black;
+  }
+h1.title {
+  font-size: 38px;
+  font-family: Times New Roman;
+  color: Black;
+}
+h1 { /* Header 1 */
+  font-size: 20px;
+  font-family: Times New Roman;
+  color: Black;
+}
+h2 { /* Header 2 */
+    font-size: 18px;
+    font-family: Times New Roman;
+  color: DarkBlue;
+}
+h3 { /* Header 3 */
+  font-size: 16px;
+  font-family: "Times New Roman", Times, serif;
+  color: DarkBlue;
+}
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+</style>
+
+#The project is aimed to use the historical data of Shanghai License Plate Bidding Price, as well as the GDP and the number of cars owned by individuals, to predict the future lowest price of a single license plate every month.
+
+##Read Shanghai_License_Plate.csv, Save the dataset into data_original dataset.
+
+##Change the file read route to your own one.
+```{r}
+data_original=read.csv("/Users/Suwan_Long/Desktop/BA Project/Shanghai_License_Plate.csv")
+```
+
+##We want to know the relationships between all variables with the lowest bidding price, so we applied linear regression here. Let the lowest dealing price be dependent variable, the GDP, number of cars owned by individuals and the number of applicants, the number of total license plate issued and the average dealing price of a single license plate be independent variables.
+
+##The original dataset ONLY contains the data related to license plate auction, I saved the original dataset into 'dat' here and will add the data of GDP and Number of individual cars in.
+
+##1. Add missing data 
+###The missing data will affect both the linear regression and the times series analysis. Here the missing data is the data in Feb. 2008. By calculating the average value of each column in 2008 to make up the missing data, add this value into a new row after Jan. 2008, which is row 74.
+
+###The detailed steps that I fill the missing row are: Firstly I broke up the dataset into two parts. The part one is from row 1 to row 73, I inserted a row after row 73, add data into row 74, and then merge the two parts together. Changing the index to make sure all the rows are in order. Calculating the mean value of each column in 2008 to fill row 74 respectively.
+```{r}
+#Load data
+dat = data_original
+
+#Convert the categorical data to character
+dat[,1] = as.character(dat[,1])
+
+#find the missing data
+
+dat[72:75,]
+
+Data_Break = dat[1:73,]
+
+#add a new row with null data
+Data_Break = rbind(Data_Break, c(NaN, 0, 0, 0, 0))
+
+tail(Data_Break)
+
+#add the missing date in the column 1 of row 74
+Data_Break[74,1] = "2008/2"
+
+#merge two parts together
+dat = rbind(Data_Break, dat[74:193,])
+
+#change the index
+row.names(dat) = 1:194
+
+#change the data type in column 2 to 5 of row 74 to numerical 
+for (i in 2:5) {
+  dat[74,i] = as.numeric(dat[74,i])
+}
+
+#add missing data by the mean value of each column except column 1 in 2008
+missing = rep(0,5)
+for (i in 2:5) {
+  missing[i]=mean(dat[73:84,i],na.rm = TRUE) 
+}
+
+for (i in 2:5) {
+  dat[74,i] = missing[i]
+}
+
+```
+
+##2. Calculate the year average value of each column in the dataset
+###Because the data of GDP and Number of individual cars owned are all annually, so I calculated annually average value of each variables in auction dataset in order to make the correlation work. I setted up a new dataset called 'Final_data' to store those annually data.
+
+```{r}
+#split date from year/month to year only
+date = as.character(dat[,1])
+ndate = strsplit(date, "/")
+
+#use year only
+year = NULL
+for(i in 1:194){
+  year = c(year, ndate[[i]][1])
+}
+
+dat$Date = year
+
+#calculate the year average value of each column for every year and add them to a form
+Final_data = aggregate(dat[, -1], list(dat$Date), mean)
+
+names(Final_data)[1] = "Date"
+
+#only keep the data from 2003 to 2016
+Final_data = Final_data[c(-1,-16,-17),]
+
+#change index
+rownames(Final_data) = 1:14
+```
+
+##3. Add GDP and the No. of individual cars owned of Shanghai into dataset 'Final_data'
+###Now we have all variables we need to run linear regression
+```{r}
+#add gdp and no. of individual cars owned from 2003 to 2016 into the  dataframe
+
+Final_data = data.frame(Final_data, GDP = c(6762.38,8165.38,9365.54,10718.04,12668.12,14275.80,15285.58,17433.21,19533.84,20553.52,22257.66,24060.87,25643.47,28178.65))
+
+Final_data = data.frame(Final_data, Cars = c(16.66,24.28,32.21,40.95,50.15,59.69,71.06,86.54,98.87,114.58,130.46,144.98,161.98,181.19))
+```
+
+##Run linear regression
+##The aim is to figure out the relationship between Lowest dealing price, y, and other explanatory variables, which includes GDP, Total number of license issued, Total number of applicants and Number of individual cars, etc. Meanwhile, to eliminate the multicollinearity, I used 'stepwise' to choose the best linear regression model. 'Stepwise' is an algorithm to select a best linear regression model through comparing AIC, which in an estimator of the relative quality of statistical models for a given set of data. AIC estimates the quality of each model, relative to each of the other models.
+```{r}
+#run linear regression 
+
+LR_all = lm(Final_data$Lowest.dealing.price ~ Final_data$GDP + Final_data$Total.number.of.license.issued + Final_data$Total.number.of.applicants + Final_data$Cars)
+
+summary(LR_all)
+
+#use stepwise to select the best linear regression model
+step(LR_all, direction = "both")
+
+final.fit = lm(Final_data$Lowest.dealing.price ~ Final_data$GDP + Final_data$Total.number.of.applicants + Final_data$Cars)
+summary(final.fit)
+
+```
+##From the results above, we know that the variable, total number of license issued, has mnulticollinearity with other variable, so the final linear regression model we only chose GDP, number of cars owned by individuals and total number of applicants as the independent variables. All of them are strongly correlated to the lowest dealing price. 
+
+
+#Building Times Seires Analysis Model
+
+##After doing linear regression between all variables, here we use time series analysis to build ARIMA model to predict the lowest bidding price for a single Shanghai license plate
+##The lowest dealing prices were taken over time and there may be an internal structure that should be accounted for.
+
+```{r}
+#Read data
+data = dat[, c(1,3)]
+
+#Simply hist the lowest dealing price
+library(ggplot2)
+ggplot(data, aes(data$Lowest.dealing.price)) + geom_histogram(color="black") + theme_classic() + xlab("Lowest.dealing.price") + ggtitle("Figure 1: The histogram of lowest dealing price") + 
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+##In order to do Time-Series analysis, the first step is to sort out date.
+```{r}
+#Sort out Date
+library(zoo)
+data$Date = as.yearmon(data[,1], "%Y/%m")
+```
+
+##Then we plot a graph to roughly determine whether it is stationary or not
+```{r}
+#Plot Times-series graph to see whether it looks stationary or not
+ts_lowest.price = ts(data$Lowest.dealing.price, frequency = 12, start = c(2002,1), end = c(2018, 2))
+plot(ts_lowest.price, main="Figure 2: The figure of lowest price", xlab="Date", type="l", ylab="Lowest Dealing Price")
+```
+
+##The original data is not stationary. Here I difference the trend. Differencing can help stabilize the mean of a time series by removing changes in the level of a time series, and so eliminating trend and seasonality.
+```{r}
+#Differencing the trend
+
+lowest.price.diff = diff(ts_lowest.price, differences = 1)
+plot.ts(lowest.price.diff,type = 'l', main="Figure 3: The one difference lowest price")
+```
+
+##The way to check whether it is stationary or not is to use Dickey-Fuller test. I checked both the original data and the data after differencing.
+
+##Dickey Fuller test tests the he null hypothesis that a unit root is present in a time series sample. The alternative hypothesis is different depending on which version of the test is used, but is usually stationarity or trend-stationarity. By looking at the p value we can decide whether we can reject the null hypothesis or not.
+```{r}
+#Use Dickey-Fuller test to check whether it is stationary or not
+#Compare the stationary of the data before and after diffrencing
+
+library(fUnitRoots)
+
+adfTest(lowest.price.diff)
+adfTest(ts_lowest.price)
+```
+##From the Dickey Fuller test, we can see the p value of the original data is 0.7825, which means we cannot reject the null hypothesis. While the data after diffrencing, the p value from the Dickey Fuller test is 0.01, which means we can reject the null hypothesis. Meanwhile, the augmented Dickey–Fuller (ADF) statistic, used in the test, is a negative number. The more negative it is, the stronger the rejection of the hypothesis that there is a unit root at some level of confidence.
+
+##Now the data after differencing is stationary, so we need to apply first order differencing to build an ARIMA model.
+
+##Check the seasonal effects of the data and make adjustment to eliminate it 
+```{r}
+#use decomposition to deconstruct the time series into several components
+
+decomp = decompose(ts_lowest.price)
+plot(decomp)
+low_price = ts_lowest.price - decomp$seasonal
+```
+##The result shows there is a seasonal effect, which means the lowest dealing price will change according to different seansons. We need to make adjustment to eliminate the seasonal effect.
+
+##After finished these data preparation and transformation, we will start to examine the autoregressive and moving average models to find the most appropriate ARIMA model
+
+#Build Model
+
+##I examined the autocorrelation function (ACF) and partial autocorrelation function (PACF) for model selection, use properties of ACF and PACF as a guide to estimate plausible models and select appropriate p and q. The goal is to select a stationary and parsimonious model that has significant coefficients and a good fit.
+```{r}
+#Examine Autocorrelation function and Partial autocorrelation function
+
+acf(lowest.price.diff, main="Figure 4: The figure of ACF")
+pacf(lowest.price.diff, main="Figure 5: The figure of PACF")
+```
+
+##After examined the autocorrelation function and partial autocorrelation function, I got that p = 2, and q = 3. Use them to build my first ARIMA model.
+
+##Meanwhile, I use auto.arima to ask R to find the most suitable ARIMA model. By comparing the two models and to find the better one. Auto.arima will conduct a search over possible model within the order constraints provided and then return best ARIMA model according to either AIC, AICc, or BIC value. 
+```{r}
+#Build ARIMA model by auto.arima
+
+library(forecast)
+fit <- Arima(low_price, c(2,1,3))
+summary(fit)
+auto.fit <- auto.arima(low_price)
+summary(auto.fit)
+```
+##By using of the Akaike Information Criterion (AIC) or its small‐sample equivalent, AICc, and Bayesian Information Criterion (BIC), we found that the auto.arima one is better. Because the lower the value of AIC, AICc and BIC, the better the model. I use it to predict the following months' lowest bidding price for Shanghai License Plate.
+
+##Plot the prediction results, through the graph we can see the fitted line suits the original data very well.
+```{r}
+#Choose the better one to do forecasting
+
+fit.good <- Arima(low_price, c(1,1,1))
+f<-forecast(fit.good,h=6,level=c(99.5))
+summary(f)
+
+#Plot the prediction
+
+plot(f, main="Figure 6: The figure of forecast from ARIMA(1,1,1)")
+lines(f$fitted,col="green")
+lines(low_price,col="red")
+legend("topleft", legend=c("Fitted", "Original", "Predicted"),
+       col=c("green", "red", "blue"), lty = 1, cex = 0.8)
+```
+
+##Because the terms of moving average is 1, so the range of confidence intervel will be bigger and bigger, which may reslut the prediction meaningless.
+
+##After building ARIMA model, I want to check whether all the information in the data were used or not. So I checked whether the residuals is white noise or not.
+
+##Ljung-Box test is applied to the residuals of a fitted ARIMA model, and the hypothesis actually being tested is that the residuals from the ARIMA model have no autocorrelation.The model does not exhibit lack of fit.
+```{r}
+#Plot the residuals
+plot.ts(fit.good$residuals, main="Figure 7: The figure of residuals")
+
+#Check whether it is white noise or not
+Box.test(fit.good$residuals, lag=20, type="Ljung-Box")
+```
+##The test is applied to the residuals of a time series after fitting an ARIMA(p, d, q) model to the data. The test examines m autocorrelations of the residuals. If the autocorrelations are very small, we conclude that the model does not exhibit significant lack of fit. The p value we got above is bigger than 0.05, we cannot reject the null hypothesis. The residuals are white noise, there are no autocorrelation between residuals. ARIMA model is suitable for this case.
+
+
